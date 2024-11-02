@@ -1,0 +1,123 @@
+#
+#  Author: Nho Luong
+#  Date: 2024-02-27 18:45:11 +0000 (Tue, 27 Feb 2024)
+#
+#  vim:ts=2:sts=2:sw=2:et
+#
+#  https://github.com/nholuongut/knowledge-base
+#
+#  If you're using my code you're welcome to connect with me on LinkedIn and optionally send me feedback
+#
+#  https://www.linkedin.com/in/nholuong
+#
+
+# ============================================================================ #
+#                           C o u n t r y   C o u n t
+# ============================================================================ #
+
+# Update the Number of Countries count in the travel.md doc
+
+---
+name: Country Count
+
+on:
+  push:
+    branches:
+      - master
+      - main
+    paths:
+      - travel.md
+      - .github/scripts/country_count.sh
+      - .github/workflows/country_count.yaml
+  pull_request:
+    branches:
+      - master
+      - main
+    paths:
+      - travel.md
+      - .github/scripts/country_count.sh
+      - .github/workflows/country_count.yaml
+  workflow_dispatch:
+    inputs:
+      debug:
+        # XXX: this still only works as a string comparison ${{ gitihub.events.inputs.debug == 'true' }}
+        type: boolean
+        required: false
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ${{ github.ref }}-${{ github.workflow }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash -euxo pipefail {0}
+
+env:
+  GIT_AUTHOR_NAME: nho nho
+  # inherited from repo environment variable to avoid GitHub redacting the git log
+  # so I can see commit results correct before enabling committing
+  #GIT_AUTHOR_EMAIL: ${{ secrets.git_author_email }}
+  GIT_AUTHOR_EMAIL: ${{ vars.GIT_AUTHOR_EMAIL }}
+  TRAVEL_MD: travel.md
+  DEBUG: ${{ inputs.debug == true || github.event.inputs.debug == true || '' }}
+
+jobs:
+  country_count:
+    # github.event.repository context not available in scheduled workflows
+    #if: github.event.repository.fork == false
+    if: github.repository_owner == 'nholuongut'
+    name: Country Count
+    timeout-minutes: 3
+    runs-on: ubuntu-latest
+    steps:
+
+      - name: Environment
+        run: env | sort
+
+      - uses: actions/checkout@v3
+        #name: Git Checkout  # better to show the action@version
+        with:
+          submodules: 'true'  # requires Git 2.18+ to be installed first
+
+      - name: Update Country Count in ${{ env.TRAVEL_MD }}
+        run: .github/scripts/country_count.sh
+
+      - name: Git Diff
+        run: git diff
+
+      - name: Git Add
+        run: git add "$TRAVEL_MD"
+
+      - name: Detect Changes to Commit
+        id: git-changed
+        continue-on-error: true
+        run: |
+          set +e
+          # the --quiet switch is required to get a non-zero exit code upon any changes
+          #git diff-index --quiet HEAD
+          # deprecated
+          #echo "::set-output name=exit_status::$?"
+          #echo "exit_status=$?" >> "$GITHUB_STATE"
+          ! git diff-index --quiet HEAD
+
+      - name: Set Git Config
+        if: ${{ steps.git-changed.outcome == 'success' }}
+        run: |
+          git config user.name "$GIT_AUTHOR_NAME"
+          git config user.email "$GIT_AUTHOR_EMAIL"
+
+      - name: Git Commit
+        if: ${{ steps.git-changed.outcome == 'success' }}
+        run: git commit -m "updated country count in $TRAVEL_MD" "$TRAVEL_MD"
+
+      - name: Git Log
+        if: ${{ steps.git-changed.outcome == 'success' }}
+        run: git log -3
+
+      - name: Git Push
+        if: ${{ steps.git-changed.outcome == 'success' }}
+        run: git push
